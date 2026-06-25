@@ -1,3 +1,181 @@
+# Wispbyte 多账号自动重启工具
+
+> 基于 **GitHub Actions + SeleniumBase** 的全自动服务器重启方案，支持自动登录、广告观看、Cloudflare Turnstile 验证，通过 **Telegram** 发送实时截图通知。
+
+⚠️ **旧版 Cloudflare Workers 方案已失效**（Workers 平台无法处理 Turnstile 验证与浏览器指纹检测），本文档合并保留其 API 调用说明，**主体内容为 GitHub Actions 新方案**。  
+已部署 Workers 的用户请迁移至 Actions 版本。
+
+---
+
+## 📌 方案对比
+
+| 特性 | GitHub Actions（推荐） | Cloudflare Workers（已失效） |
+|------|------------------------|----------------------------|
+| 自动登录 | ✅ 完整模拟浏览器 | ❌ 需手动维护 Cookie |
+| Turnstile 验证 | ✅ 自动识别点击 | ❌ 不支持 |
+| 广告观看 | ✅ 自动处理 | ❌ 不支持 |
+| 每日自动执行 | ✅ Cron 定时 / API / 手动 | ✅ Cron 触发 |
+| Telegram 通知 | ✅ 每次重启截图通知 | ✅ 汇总报告 |
+| 部署难度 | 低（Fork + Secrets） | 中（Worker + KV） |
+| 当前状态 | ✅ 有效 | ❌ 已失效 |
+
+---
+
+## 🚀 快速开始
+
+### 1. 准备文件
+
+将以下两个文件放入你的 GitHub 仓库根目录：
+
+- `scripts/main.py` —— 主脚本（见本仓库源码）
+- `.github/workflows/main.yml` —— Actions 工作流定义
+
+> 内容较长，完整源码请从本仓库复制，或直接 Fork 本仓库。
+
+### 2. 配置 Secrets
+
+进入仓库 **Settings → Secrets and variables → Actions → New repository secret**，添加：
+
+| Secret 名称 | 说明 | 示例 |
+|------------|------|------|
+| `WISPBYTE_1` | 第一个账号 | `alice@example.com-----mypassword` |
+| `WISPBYTE_2` ... `WISPBYTE_5` | 更多账号（可选） | 同上格式 |
+| `TG_BOT_TOKEN` | Telegram Bot Token（可选） | `123456:ABC-DEF1234...` |
+| `TG_CHAT_ID` | Telegram Chat ID（可选） | `123456789` |
+
+> 账号格式：`邮箱-----密码`，分隔符为 **五个连字符** `-----`。
+
+### 3. 运行
+
+- **手动运行**：Actions 页面 → `Wispbyte 自动重启` → Run workflow。
+- **API 触发**（见下方 API 调用方式）。
+- **定时运行**：取消 workflow 文件中 `schedule` 的注释，修改 cron 表达式。
+
+---
+
+## 🔧 详细配置说明
+
+### 账号 Secrets 格式
+
+每一个 `WISPBYTE_N` 变量对应一个账号，格式固定：
+
+```
+your_email@example.com-----your_password
+```
+
+示例：
+
+```
+WISPBYTE_1 = bob@test.com-----SuperSecret123
+WISPBYTE_2 = alice@domain.com-----AnotherPass!
+```
+
+默认支持 1~5 个账号。若需更多，请修改脚本中 `range(1, 6)` 并添加对应 Secrets。
+
+### Telegram 通知（可选）
+
+1. 向 [BotFather](https://t.me/botfather) 申请 Bot Token。
+2. 获取你的 Chat ID（向 bot 发消息后访问 `https://api.telegram.org/bot<TOKEN>/getUpdates`）。
+3. 填入 `TG_BOT_TOKEN` 和 `TG_CHAT_ID`。
+4. 重启完成后，Bot 将发送带截图的结果通知。
+
+### 定时任务（Cron）
+
+编辑 `.github/workflows/wispbyte_restart.yml`，取消 `schedule` 注释：
+
+```yaml
+on:
+  schedule:
+    - cron: '20 3 * * *'   # 每天 UTC 3:20（北京时间 11:20）
+  workflow_dispatch:
+    inputs:
+      accounts:
+        ...
+```
+
+---
+
+## 🌐 触发方式与 API 调用
+
+### 1. 手动触发（GitHub 网页）
+
+进入 Actions 页面 → 选择工作流 → **Run workflow**。  
+可选填写 `accounts` 输入框（多个邮箱用英文逗号分隔）以指定运行账号；留空则运行全部已配置账号。
+
+### 2. API 触发（workflow_dispatch）
+
+通过 GitHub REST API 触发工作流，适合外部定时服务或自动化集成。
+
+#### 运行全部账号
+
+```bash
+curl -X POST \
+  https://api.github.com/repos/<用户名>/<仓库名>/actions/workflows/main.yml/dispatches \
+  -H "Accept: application/vnd.github.v3+json" \
+  -H "Authorization: token ghp_xxxxxxxxxxxx" \
+  -d '{"ref":"main","inputs":{"accounts":""}}'
+```
+
+#### 运行单个指定邮箱账号
+
+```bash
+curl -X POST \
+  https://api.github.com/repos/<用户名>/<仓库名>/actions/workflows/main.yml/dispatches \
+  -H "Accept: application/vnd.github.v3+json" \
+  -H "Authorization: token ghp_xxxxxxxxxxxx" \
+  -d '{"ref":"main","inputs":{"accounts":"alice@example.com"}}'
+```
+
+> 替换 `<用户名>`、`<仓库名>`、`ghp_xxxxxxxxxxxx`（GitHub Personal Access Token，需具有 `workflow` 权限）以及邮箱地址。  
+> 多个邮箱用逗号分隔，如 `"alice@example.com,bob@test.com"`。
+
+### 3. 定时触发
+
+通过 Actions 内置的 `schedule` 事件，编辑 workflow 文件的 `cron` 表达式即可。
+
+---
+
+## 🧠 脚本工作流程
+
+单次运行时，脚本依次处理每个账号：
+
+1. 打开 Wispbyte 登录页，填写邮箱密码  
+2. 自动点击 Cloudflare Turnstile 验证  
+3. 登录成功后通过 API 获取所有服务器 ID  
+4. 进入每个服务器控制台，点击 **Start/Restart**  
+5. 智能处理广告流程：  
+   - 自动观看奖励视频（Watch ad to continue）  
+   - 处理 “No ad available” 弹窗  
+   - 绕过 AdBlocker 检测页  
+6. 处理重启时弹出的 **CF Turnstile 二次验证弹窗**  
+7. 轮询服务器状态直至 `running`  
+8. 截图并通过 Telegram 发送结果  
+9. 多账号间自动切换 WARP IP（避免风控）
+
+---
+
+## 💬 Telegram 通知示例
+
+配置 Telegram 后，每台服务器重启结束会收到：
+
+```
+✅ 重启成功
+
+账号: a***@e***.com
+服务器: fb***73
+
+Wispbyte Auto Restart
+```
+
+失败时同样会发送截图及错误描述。
+
+---
+
+## ❌ 旧版 Cloudflare Workers 方案（已失效）
+
+<details>
+<summary>点击展开旧版说明（仅供参考）</summary>
+
 # ⭐ Star 一下支持项目 ⭐
 
 > 动动发财手点点 Star ⭐
@@ -146,3 +324,18 @@ Wispbyte Auto Restart
 ## ⚠️ 免责声明
 
 本项目仅供学习研究使用。使用本脚本产生的任何后果由使用者自行承担。请遵守 Wispbyte 的服务条款。
+
+</details>
+
+---
+
+## ❤️ 支持项目
+
+如果这个项目对你有帮助，点个 **Star ⭐** 支持一下吧！
+
+---
+
+## ⚠️ 免责声明
+
+本项目仅供学习研究使用。使用本脚本产生的任何后果由使用者自行承担。请遵守 Wispbyte 的服务条款。
+
