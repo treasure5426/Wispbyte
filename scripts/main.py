@@ -992,42 +992,42 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
                                   f"❌ 登录失败（重试后）\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
                     return
 
-            servers = get_servers(sb)
-            if not servers:
+                servers = get_servers(sb)
+                if not servers:
+                    if retry == 0:
+                        log(f"账号 {idx} 未找到服务器，切换 WARP IP 后重试...", "WARN")
+                        restart_warp()
+                        continue
+                    screenshot = take_screenshot(sb, idx, "no-server")
+                    send_tg_photo(tg_token, tg_chat, screenshot,
+                                  f"❌ 未找到服务器\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
+                    return
+
+                for si, server_id in enumerate(servers, start=1):
+                    success = restart_server(sb, server_id)
+                    suffix = f"done-{si}" if len(servers) > 1 else "done"
+                    screenshot = take_screenshot(sb, idx, suffix)
+                    status_icon = "✅" if success else "❌"
+                    status_text = "重启成功" if success else "重启失败"
+                    caption = (
+                        f"{status_icon} {status_text}\n\n"
+                        f"账号: {mask_email(email)}\n"
+                        f"服务器: {server_id}\n\n"
+                        f"Wispbyte Auto Restart"
+                    )
+                    send_tg_photo(tg_token, tg_chat, screenshot, caption)
+
+                break  # 成功后退出重试循环
+
+            except Exception as e:
+                log(f"账号 {idx} 处理异常 (重试{retry}): {e}", "ERROR")
                 if retry == 0:
-                    log(f"账号 {idx} 未找到服务器，切换 WARP IP 后重试...", "WARN")
+                    log(f"切换 WARP IP 后重试...", "WARN")
                     restart_warp()
                     continue
-                screenshot = take_screenshot(sb, idx, "no-server")
+                screenshot = take_screenshot(sb, idx, "exception")
                 send_tg_photo(tg_token, tg_chat, screenshot,
-                              f"❌ 未找到服务器\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
-                return
-
-            for si, server_id in enumerate(servers, start=1):
-                success = restart_server(sb, server_id)
-                suffix = f"done-{si}" if len(servers) > 1 else "done"
-                screenshot = take_screenshot(sb, idx, suffix)
-                status_icon = "✅" if success else "❌"
-                status_text = "重启成功" if success else "重启失败"
-                caption = (
-                    f"{status_icon} {status_text}\n\n"
-                    f"账号: {mask_email(email)}\n"
-                    f"服务器: {server_id}\n\n"
-                    f"Wispbyte Auto Restart"
-                )
-                send_tg_photo(tg_token, tg_chat, screenshot, caption)
-
-            break  # 成功后退出重试循环
-
-        except Exception as e:
-            log(f"账号 {idx} 处理异常 (重试{retry}): {e}", "ERROR")
-            if retry == 0:
-                log(f"切换 WARP IP 后重试...", "WARN")
-                restart_warp()
-                continue
-            screenshot = take_screenshot(sb, idx, "exception")
-            send_tg_photo(tg_token, tg_chat, screenshot,
-                          f"❌ 脚本异常\n账号: {mask_email(email)}\n信息: {str(e)[:200]}\n\nWispbyte Auto Restart")
+                              f"❌ 脚本异常\n账号: {mask_email(email)}\n信息: {str(e)[:200]}\n\nWispbyte Auto Restart")
 
 
 # ====================== 账号加载 ======================
