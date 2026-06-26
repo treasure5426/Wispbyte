@@ -711,12 +711,28 @@ def login(sb, email: str, password: str) -> bool:
         sb.execute_script('document.querySelector("form#login-form").submit()')
 
     log("等待跳转到仪表盘...")
-    for _ in range(15):
-        if "/dashboard" in sb.get_current_url() or "/client/dashboard" in sb.get_current_url():
+    for _ in range(30):
+        cur_url = sb.get_current_url()
+        if "/dashboard" in cur_url or "/client/dashboard" in cur_url:
             log("已跳转到仪表盘")
             break
+        # 检查是否停留在登录页（可能密码错误或账号异常）
+        if _ == 5 and ("/client" in cur_url and "dashboard" not in cur_url):
+            try:
+                page_text = sb.execute_script("return document.body.innerText.slice(0, 300)")
+                log(f"页面内容预览: {page_text}", "WARN")
+            except Exception:
+                pass
         time.sleep(1)
     else:
+        # 超时：截图 + 打印页面信息
+        try:
+            final_url = sb.get_current_url()
+            log(f"最终 URL: {final_url}", "ERROR")
+            page_text = sb.execute_script("return document.body.innerText.slice(0, 500)")
+            log(f"页面内容: {page_text}", "ERROR")
+        except Exception as e:
+            log(f"获取页面信息失败: {e}", "ERROR")
         log("登录后未成功跳转到仪表盘", "ERROR")
         return False
 
