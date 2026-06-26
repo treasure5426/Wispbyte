@@ -705,10 +705,36 @@ def login(sb, email: str, password: str) -> bool:
         return False
 
     log("提交登录...")
-    try:
-        sb.click('button.login-btn')
-    except Exception:
-        sb.execute_script('document.querySelector("form#login-form").submit()')
+    # Turnstile 通过后稍等，确保回调触发
+    time.sleep(2)
+
+    # 多种方式确保表单提交成功
+    submitted = False
+    for attempt in range(3):
+        try:
+            # 方式1: JS click（绕过事件监听器问题）
+            sb.execute_script('''
+                var btn = document.querySelector('button.login-btn');
+                if (btn) {
+                    btn.click();
+                    btn.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+                }
+            ''')
+            submitted = True
+            log(f"已通过 JS 点击登录按钮 (attempt {attempt+1})")
+            break
+        except Exception as e:
+            log(f"JS 点击失败 (attempt {attempt+1}): {e}", "WARN")
+            time.sleep(1)
+
+    if not submitted:
+        # 最后兜底：直接提交表单
+        try:
+            sb.execute_script('document.querySelector("form#login-form").submit()')
+            log("已通过 JS 提交表单（兜底）")
+        except Exception as e:
+            log(f"表单提交也失败: {e}", "ERROR")
+            return False
 
     log("等待跳转到仪表盘...")
     for _ in range(30):
@@ -950,19 +976,28 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
     log(f"开始处理账号 {idx} | {mask_email(email)}")
     log(f"{'='*50}")
 
-    user_data_dir = tempfile.mkdtemp(prefix=f"wisp_usr_{idx}_")
-    with SB(uc=True, test=True, locale="en", headed=False,
-            user_data_dir=user_data_dir,
-            chromium_arg="--disable-blink-features=AutomationControlled") as sb:
-        try:
-            if not login(sb, email, password):
-                screenshot = take_screenshot(sb, idx, "login-fail")
-                send_tg_photo(tg_token, tg_chat, screenshot,
-                              f"❌ 登录失败\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
-                return
+    for retry in range(2):
+        user_data_dir = tempfile.mkdtemp(prefix=f"wisp_usr_{idx}_r{retry}_")
+        with SB(uc=True, test=True, locale="en", headed=False,
+                user_data_dir=user_data_dir,
+                chromium_arg="--disable-blink-features=AutomationControlled") as sb:
+            try:
+                if not login(sb, email, password):
+                    if retry == 0:
+                        log(f"账号 {idx} 首次登录失败，切换 WARP IP 后重试...", "WARN")
+                        restart_warp()
+                        continue  # retry
+                    screenshot = take_screenshot(sb, idx, "login-fail")
+                    send_tg_photo(tg_token, tg_chat, screenshot,
+                                  f"❌ 登录失败（重试后）\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
+                    return
 
             servers = get_servers(sb)
             if not servers:
+                if retry == 0:
+                    log(f"账号 {idx} 未找到服务器，切换 WARP IP 后重试...", "WARN")
+                    restart_warp()
+                    continue
                 screenshot = take_screenshot(sb, idx, "no-server")
                 send_tg_photo(tg_token, tg_chat, screenshot,
                               f"❌ 未找到服务器\n账号: {mask_email(email)}\n\nWispbyte Auto Restart")
@@ -982,8 +1017,14 @@ def process_account(idx: int, email: str, password: str, tg_token: str, tg_chat:
                 )
                 send_tg_photo(tg_token, tg_chat, screenshot, caption)
 
+            break  # 成功后退出重试循环
+
         except Exception as e:
-            log(f"账号 {idx} 处理异常: {e}", "ERROR")
+            log(f"账号 {idx} 处理异常 (重试{retry}): {e}", "ERROR")
+            if retry == 0:
+                log(f"切换 WARP IP 后重试...", "WARN")
+                restart_warp()
+                continue
             screenshot = take_screenshot(sb, idx, "exception")
             send_tg_photo(tg_token, tg_chat, screenshot,
                           f"❌ 脚本异常\n账号: {mask_email(email)}\n信息: {str(e)[:200]}\n\nWispbyte Auto Restart")
