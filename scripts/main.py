@@ -313,7 +313,7 @@ def _get_page_situation(sb) -> str:
         return 'unknown'
 
     # 检查是否在 reward video 页面
-    if "reward-video" in current_url or "reward_video" in current_url:
+    if "reward-video" in current_url or "reward_video" in current_url or "venatus-reward" in current_url:
         return 'reward'
 
     # 检查 AdBlocker 拦截页
@@ -604,6 +604,38 @@ def _execute_reward_ad_watch(sb, identifier: str) -> bool:
     """
     safe_id = mask_server_id(identifier)
     log(f"进入广告观看流程: {safe_id}")
+
+    # Venatus 广告页面特殊处理：尝试跳过/等待自动跳转
+    current_url = sb.get_current_url()
+    if "venatus-reward" in current_url:
+        log("检测到 Venatus 广告页面，尝试跳过...")
+        # 尝试点击跳过按钮
+        try:
+            sb.execute_script('''
+                var btns = document.querySelectorAll('button, a, [role="button"]');
+                for (var i = 0; i < btns.length; i++) {
+                    var t = (btns[i].textContent || '').toLowerCase();
+                    if (t.includes('skip') || t.includes('continue') || t.includes('close') || t.includes('no thanks')) {
+                        btns[i].click();
+                        break;
+                    }
+                }
+            ''')
+            log("已尝试点击 Venatus 跳过按钮")
+        except Exception:
+            pass
+        # 等待自动跳转回控制台（Venatus 页面通常自动跳转）
+        for _ in range(15):
+            time.sleep(1)
+            try:
+                cur = sb.get_current_url()
+                if "venatus-reward" not in cur:
+                    log(f"Venatus 页面已自动跳转: {cur[:80]}")
+                    return True
+            except Exception:
+                pass
+        log("Venatus 页面等待超时，继续执行", "WARN")
+        return True
 
     # 等待 Watch ad 按钮就绪
     btn_ready = _wait_for_reward_btn_ready(sb, timeout=90)
