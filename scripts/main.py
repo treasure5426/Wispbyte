@@ -868,25 +868,40 @@ def restart_server(sb, identifier: str) -> bool:
     block_ads_modals(sb)
 
     # ── Step 2: 点击 Restart server ──
-    clicked = sb.execute_script('''
-        var btns = document.querySelectorAll('button, a[role="button"], [class*="btn"]');
-        for (var i = 0; i < btns.length; i++) {
-            var t = (btns[i].textContent || '').trim().toLowerCase();
-            if (t.includes('restart server') || t === 'restart server' ||
-                t.includes('restart') || t.includes('重新启动')) {
-                btns[i].click();
-                return {found: true, text: btns[i].textContent.trim()};
-            }
-        }
-        // fallback: ID selectors
-        var fb = document.querySelector('#start-btn, #restart-btn, #restart-server-btn');
-        if (fb) { fb.click(); return {found: true, text: fb.textContent.trim()}; }
-        return {found: false, text: ''};
-    ''')
-    if clicked and clicked.get('found'):
-        log(f"✅ 已点击按钮: {clicked.get('text', 'Restart')}")
-    else:
+    from selenium.webdriver.common.by import By
+    restart_btn = None
+    # 搜索所有按钮，匹配文字 "Restart" 或 "restart server" 或 "重新启动"
+    for btn_text in ["Restart server", "restart server", "Restart", "restart", "重新启动"]:
+        try:
+            restart_btn = sb.wait_for_element_visible(
+                f'//button[contains(text(), "{btn_text}")]', timeout=3
+            )
+            if restart_btn:
+                log(f"找到按钮: {btn_text}")
+                break
+        except Exception:
+            continue
+
+    if not restart_btn:
+        # 兜底：ID 选择器
+        for sel in ["#restart-server-btn", "#restart-btn", "#start-btn"]:
+            try:
+                restart_btn = sb.wait_for_element_visible(sel, timeout=3)
+                if restart_btn:
+                    log(f"找到按钮 (ID): {sel}")
+                    break
+            except Exception:
+                continue
+
+    if not restart_btn:
         log("未找到 Restart server 按钮", "ERROR")
+        return False
+
+    try:
+        restart_btn.click()
+        log("✅ 已点击 Restart server 按钮")
+    except Exception as e:
+        log(f"点击失败: {e}", "ERROR")
         return False
 
     # 等待页面响应
